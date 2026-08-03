@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Booking;
 
+use App\DTOs\AvailabilityQueryDto;
 use App\Models\Hotel;
 use App\Models\Occupancy;
 use App\Models\Quota;
@@ -9,6 +10,7 @@ use App\Models\RoomType;
 use App\Models\Service;
 use App\Models\Tariff;
 use App\Models\TariffPlan;
+use App\Services\RoomOffersService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Tests\TestCase;
@@ -16,6 +18,11 @@ use Tests\TestCase;
 class RoomOffersApiTest extends TestCase
 {
     use RefreshDatabase;
+
+    private function offersService(): RoomOffersService
+    {
+        return $this->app->make(RoomOffersService::class);
+    }
 
     private function createAvailableCombo(array $overrides = []): array
     {
@@ -219,19 +226,20 @@ class RoomOffersApiTest extends TestCase
         $combo = $this->createAvailableCombo();
         $this->seedNights('2026-08-10', '2026-08-13', $combo['roomType'], $combo['plan'], price: 100.0);
 
-        $this->postJson('/api/room-offers/availability', [
-            'room_type_id' => $combo['roomType']->id,
-            'tariff_plan_id' => $combo['plan']->id,
-            'check_in' => '2026-08-10',
-            'check_out' => '2026-08-13',
-            'adults' => 2,
-            'childrens' => 1,
-            'expected_price' => 300,
-        ])->assertOk()
-            ->assertJsonPath('is_available', true)
-            ->assertJsonPath('price_matches', true)
-            ->assertJsonPath('total_price', 300)
-            ->assertJsonPath('hotel_id', $combo['hotel']->id);
+        $result = $this->offersService()->checkAvailability(new AvailabilityQueryDto(
+            roomTypeId: $combo['roomType']->id,
+            tariffPlanId: $combo['plan']->id,
+            checkIn: Carbon::parse('2026-08-10'),
+            checkOut: Carbon::parse('2026-08-13'),
+            adults: 2,
+            childrens: 1,
+            expectedPrice: 300,
+        ));
+
+        $this->assertTrue($result['is_available']);
+        $this->assertTrue($result['price_matches']);
+        $this->assertSame(300.0, $result['total_price']);
+        $this->assertSame($combo['hotel']->id, $result['hotel_id']);
     }
 
     public function test_check_availability_returns_available_but_price_mismatch(): void
@@ -239,17 +247,18 @@ class RoomOffersApiTest extends TestCase
         $combo = $this->createAvailableCombo();
         $this->seedNights('2026-08-10', '2026-08-13', $combo['roomType'], $combo['plan'], price: 100.0);
 
-        $this->postJson('/api/room-offers/availability', [
-            'room_type_id' => $combo['roomType']->id,
-            'tariff_plan_id' => $combo['plan']->id,
-            'check_in' => '2026-08-10',
-            'check_out' => '2026-08-13',
-            'adults' => 2,
-            'childrens' => 1,
-            'expected_price' => 999,
-        ])->assertOk()
-            ->assertJsonPath('is_available', true)
-            ->assertJsonPath('price_matches', false);
+        $result = $this->offersService()->checkAvailability(new AvailabilityQueryDto(
+            roomTypeId: $combo['roomType']->id,
+            tariffPlanId: $combo['plan']->id,
+            checkIn: Carbon::parse('2026-08-10'),
+            checkOut: Carbon::parse('2026-08-13'),
+            adults: 2,
+            childrens: 1,
+            expectedPrice: 999,
+        ));
+
+        $this->assertTrue($result['is_available']);
+        $this->assertFalse($result['price_matches']);
     }
 
     public function test_check_availability_returns_not_available_for_unknown_combo(): void
@@ -259,17 +268,18 @@ class RoomOffersApiTest extends TestCase
 
         $otherPlan = TariffPlan::factory()->create(['hotel_id' => $combo['hotel']->id]);
 
-        $this->postJson('/api/room-offers/availability', [
-            'room_type_id' => $combo['roomType']->id,
-            'tariff_plan_id' => $otherPlan->id,
-            'check_in' => '2026-08-10',
-            'check_out' => '2026-08-13',
-            'adults' => 2,
-            'childrens' => 1,
-            'expected_price' => 300,
-        ])->assertOk()
-            ->assertJsonPath('is_available', false)
-            ->assertJsonPath('price_matches', false);
+        $result = $this->offersService()->checkAvailability(new AvailabilityQueryDto(
+            roomTypeId: $combo['roomType']->id,
+            tariffPlanId: $otherPlan->id,
+            checkIn: Carbon::parse('2026-08-10'),
+            checkOut: Carbon::parse('2026-08-13'),
+            adults: 2,
+            childrens: 1,
+            expectedPrice: 300,
+        ));
+
+        $this->assertFalse($result['is_available']);
+        $this->assertFalse($result['price_matches']);
     }
 
     public function test_inverted_dates_return_422_with_validation_error(): void
@@ -316,17 +326,19 @@ class RoomOffersApiTest extends TestCase
             ->assertJsonValidationErrors(['services_ids.0']);
     }
 
-    public function test_unknown_room_type_in_availability_returns_422(): void
+    public function test_check_availability_returns_not_available_for_unknown_room_type(): void
     {
-        $this->postJson('/api/room-offers/availability', [
-            'room_type_id' => '00000000-0000-0000-0000-000000000000',
-            'tariff_plan_id' => '00000000-0000-0000-0000-000000000000',
-            'check_in' => '2026-08-10',
-            'check_out' => '2026-08-13',
-            'adults' => 2,
-            'childrens' => 1,
-            'expected_price' => 300,
-        ])->assertStatus(422)
-            ->assertJsonPath('error', 'validation_error');
+        $result = $this->offersService()->checkAvailability(new AvailabilityQueryDto(
+            roomTypeId: '00000000-0000-0000-0000-000000000000',
+            tariffPlanId: '00000000-0000-0000-0000-000000000000',
+            checkIn: Carbon::parse('2026-08-10'),
+            checkOut: Carbon::parse('2026-08-13'),
+            adults: 2,
+            childrens: 1,
+            expectedPrice: 300,
+        ));
+
+        $this->assertFalse($result['is_available']);
+        $this->assertFalse($result['price_matches']);
     }
 }

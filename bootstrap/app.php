@@ -1,5 +1,6 @@
 <?php
 
+use App\Exceptions\BookingConflictException;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
 use Illuminate\Auth\AuthenticationException;
@@ -46,6 +47,15 @@ return Application::configure(basePath: dirname(__DIR__))
                     'message' => $exception->getMessage(),
                     'error' => 'unauthorized_error',
                 ], 401);
+            }
+        });
+
+        $exceptions->render(function (BookingConflictException $exception, Request $request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                return response()->json([
+                    'message' => $exception->getMessage(),
+                    'error' => 'conflict_error',
+                ], 409);
             }
         });
     })->create();

@@ -2,7 +2,7 @@
 
 namespace App\Services;
 
-use App\Http\Requests\CheckAvailabilityRequest;
+use App\DTOs\AvailabilityQueryDto;
 use App\Http\Requests\SearchRoomOffersRequest;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
@@ -84,23 +84,21 @@ class RoomOffersService
      *
      * @return array<string, mixed>
      */
-    public function checkAvailability(CheckAvailabilityRequest $request): array
+    public function checkAvailability(AvailabilityQueryDto $dto): array
     {
-        $checkIn = $request->date('check_in');
-        $checkOut = $request->date('check_out');
-        $nights = (int) $checkIn->diffInDays($checkOut);
+        $nights = $dto->nights();
 
         $query = $this->buildBaseOffersQuery(
-            $checkIn->toDateString(),
-            $checkOut->toDateString(),
-            $request->integer('adults'),
-            $request->integer('childrens'),
+            $dto->startDate(),
+            $dto->endDate(),
+            $dto->adults,
+            $dto->childrens,
             $nights,
         );
 
         $query
-            ->where('r.id', $request->input('room_type_id'))
-            ->where('tp.id', $request->input('tariff_plan_id'))
+            ->where('r.id', $dto->roomTypeId)
+            ->where('tp.id', $dto->tariffPlanId)
             ->selectRaw('
                 h.id AS hotel_id,
                 r.id AS room_type_id,
@@ -116,17 +114,17 @@ class RoomOffersService
             return [
                 'is_available' => false,
                 'price_matches' => false,
-                'expected_price' => (float) $request->input('expected_price'),
+                'expected_price' => $dto->expectedPrice,
             ];
         }
 
         $totalPrice = (float) $result->total_price;
-        $priceMatches = round($totalPrice * 100) === round((float) $request->input('expected_price') * 100);
+        $priceMatches = round($totalPrice * 100) === round($dto->expectedPrice * 100);
 
         return [
             'is_available' => true,
             'price_matches' => $priceMatches,
-            'expected_price' => (float) $request->input('expected_price'),
+            'expected_price' => $dto->expectedPrice,
             'total_price' => $totalPrice,
             'total_room_price' => (float) $result->total_room_price,
             'hotel_id' => $result->hotel_id,

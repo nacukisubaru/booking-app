@@ -5,7 +5,7 @@ namespace App\Http\Requests;
 use App\Concerns\ValidatesDateRange;
 use Illuminate\Contracts\Validation\ValidationRule;
 
-class CheckAvailabilityRequest extends ApiFormRequest
+class BookOrderRequest extends ApiFormRequest
 {
     use ValidatesDateRange;
 
@@ -21,7 +21,6 @@ class CheckAvailabilityRequest extends ApiFormRequest
             'tariff_plan_id' => ['required', 'uuid', 'exists:tariff_plans,id'],
             'adults' => ['required', 'integer', 'min:1'],
             'childrens' => ['required', 'integer', 'min:0'],
-            'expected_price' => ['required', 'numeric', 'min:0'],
         ]);
     }
 }
